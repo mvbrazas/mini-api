@@ -79,6 +79,43 @@ export async function saveProfileEmail(request: Request, response: Response) {
     response.json({ saved: true, email });
 }
 
+export async function saveProfileUsername(request: Request, response: Response) {
+    const openId = getSessionOpenId(request);
+    if (!openId) {
+        response.status(401).json({ message: "Your session has expired. Please sign in again." });
+        return;
+    }
+
+    const submittedUsername = typeof request.body?.username === "string" ? request.body.username.trim().replace(/^@/, "") : "";
+    if (!/^[A-Za-z0-9._]{2,24}$/.test(submittedUsername)) {
+        response.status(400).json({ message: "Enter a valid TikTok username (2-24 letters, numbers, periods, or underscores)." });
+        return;
+    }
+
+    await TikTokUserInfoDB.findOneAndUpdate({ openId }, {
+        $set: { username: submittedUsername, usernameSource: "user_provided" },
+        $setOnInsert: { openId, displayName: null, avatarUrl: null, email: null },
+    }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
+    response.json({ saved: true, username: submittedUsername });
+}
+
+export async function getProfileInfo(request: Request, response: Response) {
+    const openId = getSessionOpenId(request);
+    if (!openId) {
+        response.status(401).json({ message: "Your session has expired. Please sign in again." });
+        return;
+    }
+
+    const profile = await TikTokUserInfoDB.findOne({ openId }).select("username usernameSource email displayName avatarUrl").lean().exec();
+    response.json({
+        username: profile?.username || "",
+        usernameSource: profile?.usernameSource || null,
+        email: profile?.email || "",
+        displayName: profile?.displayName || "",
+        avatarUrl: profile?.avatarUrl || "",
+    });
+}
+
 export async function refreshSession(request: Request, response: Response) {
     const openId = getSessionOpenId(request);
     if (!openId) {

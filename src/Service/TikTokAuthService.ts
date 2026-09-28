@@ -165,8 +165,14 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
         }
 
         const user = result.data.user;
-        const profile: Partial<Pick<TikTokUserInfo, "username" | "displayName" | "avatarUrl">> = {};
-        if (typeof user.username === "string" && user.username.length > 0) profile.username = user.username;
+        const profile: Partial<Pick<TikTokUserInfo, "username" | "usernameSource" | "displayName" | "avatarUrl">> = {};
+        if (typeof user.username === "string" && user.username.length > 0) {
+            const existingInfo = await TikTokUserInfoDB.findOne({ openId }).select("usernameSource").exec();
+            if (existingInfo?.usernameSource !== "user_provided") {
+                profile.username = user.username;
+                profile.usernameSource = "tiktok";
+            }
+        }
         if (typeof user.display_name === "string" && user.display_name.length > 0) profile.displayName = user.display_name;
         if (typeof user.avatar_url === "string" && user.avatar_url.length > 0) profile.avatarUrl = user.avatar_url;
         if (Object.keys(profile).length === 0) return;
