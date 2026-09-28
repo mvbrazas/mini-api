@@ -84,6 +84,7 @@ async function persistTokens(
     openId: string,
     data: TikTokTokenResponse,
     previousRefreshToken?: string,
+    preserveExistingScopes = true,
 ) {
     if (!data.access_token || !data.refresh_token && !previousRefreshToken) {
         throw new TikTokAuthError("TikTok returned an incomplete token response", 502);
@@ -95,7 +96,15 @@ async function persistTokens(
         : existing?.refreshTokenExpiresAt;
     if (!refreshExpiry) throw new TikTokAuthError("TikTok returned an invalid refresh token expiry", 502);
 
-    const scope = data.scope || existing?.scope || "";
+    const returnedScopes = new Set((data.scope || "").split(/[\s,]+/).filter(Boolean));
+    if (preserveExistingScopes) {
+        for (const existingScope of (existing?.scope || "").split(/[\s,]+/).filter(Boolean)) {
+            returnedScopes.add(existingScope);
+        }
+    }
+    const scope = preserveExistingScopes
+        ? Array.from(returnedScopes).join(",") || existing?.scope || ""
+        : data.scope || "";
     await TikTokUserDB.findOneAndUpdate({ openId }, {
         $set: {
             encryptedAccessToken: encryptToken(data.access_token),
@@ -113,7 +122,7 @@ async function persistTokens(
 async function syncTikTokUserInfo(openId: string, accessToken: string, scope: string) {
     const grantedScopes = new Set(scope.split(/[\s,]+/).filter(Boolean));
     const fields: string[] = [];
-    if (grantedScopes.has("user.info.basic")) fields.push("display_name", "avatar_url");
+    if (grantedScopes.has("user.info.basic")) fields.push("display_name", "avatar_url", "username");
     if (grantedScopes.has("user.info.profile")) fields.push("username");
     if (fields.length === 0) {
         await writeErrorLog("syncTikTokUserInfo", "profile_scope_missing", "TikTok did not grant profile information scopes", {
@@ -159,12 +168,12 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
     }
 }
 
-export async function exchangeAuthorizationCode(code: string) {
+export async function exchangeAuthorizationCode(code: string, replaceExistingScopes = false) {
     const data = await requestToken(new URLSearchParams({ code, grant_type: "authorization_code" }));
     if (!data.open_id) throw new TikTokAuthError("TikTok did not return a user identity", 502);
-    const scope = await persistTokens(data.open_id, data);
+    const scope = await persistTokens(data.open_id, data, undefined, !replaceExistingScopes);
     await syncTikTokUserInfo(data.open_id, data.access_token as string, scope);
-    return data.open_id;
+    return { openId: data.open_id, scope };
 }
 
 export async function refreshUserTokens(openId: string) {

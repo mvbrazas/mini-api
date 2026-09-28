@@ -50,8 +50,9 @@ export async function silentLogin(request: Request, response: Response) {
     }
 
     try {
-        const openId = await exchangeAuthorizationCode(code);
-        response.json({ authenticated: true, sessionToken: createSessionToken(openId) });
+        const replaceExistingScopes = request.body?.profileAuthorization === true;
+        const { openId, scope } = await exchangeAuthorizationCode(code, replaceExistingScopes);
+        response.json({ authenticated: true, sessionToken: createSessionToken(openId), grantedScopes: scope });
     } catch (error) {
         await sendAuthError(request, response, error, "silentLogin");
     }
