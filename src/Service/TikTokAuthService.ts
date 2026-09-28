@@ -122,8 +122,12 @@ async function persistTokens(
 async function syncTikTokUserInfo(openId: string, accessToken: string, scope: string, explicitAuthorization = false) {
     const grantedScopes = new Set(scope.split(/[\s,]+/).filter(Boolean));
     const fields: string[] = [];
-    if (grantedScopes.has("user.info.basic")) fields.push("display_name", "avatar_url", "username");
+    if (grantedScopes.has("user.info.basic")) fields.push("display_name", "avatar_url");
     if (grantedScopes.has("user.info.profile")) fields.push("username");
+    await TikTokUserInfoDB.findOneAndUpdate({ openId }, {
+        $setOnInsert: { openId, username: null, displayName: null, avatarUrl: null, email: null },
+    }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
+
     if (fields.length === 0) {
         if (explicitAuthorization) {
             await writeErrorLog("syncTikTokUserInfo", "profile_scope_missing", "TikTok did not grant profile information scopes", {
