@@ -119,16 +119,18 @@ async function persistTokens(
     return scope;
 }
 
-async function syncTikTokUserInfo(openId: string, accessToken: string, scope: string) {
+async function syncTikTokUserInfo(openId: string, accessToken: string, scope: string, explicitAuthorization = false) {
     const grantedScopes = new Set(scope.split(/[\s,]+/).filter(Boolean));
     const fields: string[] = [];
     if (grantedScopes.has("user.info.basic")) fields.push("display_name", "avatar_url", "username");
     if (grantedScopes.has("user.info.profile")) fields.push("username");
     if (fields.length === 0) {
-        await writeErrorLog("syncTikTokUserInfo", "profile_scope_missing", "TikTok did not grant profile information scopes", {
-            stage: "profile_lookup_scope",
-            grantedScopes: Array.from(grantedScopes),
-        });
+        if (explicitAuthorization) {
+            await writeErrorLog("syncTikTokUserInfo", "profile_scope_missing", "TikTok did not grant profile information scopes", {
+                stage: "profile_lookup_scope",
+                grantedScopes: Array.from(grantedScopes),
+            });
+        }
         return;
     }
 
@@ -172,7 +174,7 @@ export async function exchangeAuthorizationCode(code: string, replaceExistingSco
     const data = await requestToken(new URLSearchParams({ code, grant_type: "authorization_code" }));
     if (!data.open_id) throw new TikTokAuthError("TikTok did not return a user identity", 502);
     const scope = await persistTokens(data.open_id, data, undefined, !replaceExistingScopes);
-    await syncTikTokUserInfo(data.open_id, data.access_token as string, scope);
+    await syncTikTokUserInfo(data.open_id, data.access_token as string, scope, replaceExistingScopes);
     return { openId: data.open_id, scope };
 }
 
