@@ -6,7 +6,7 @@ Express and TypeScript API for TikTok Minis silent login. Its organization follo
 
 Copy `env.example` to `.env`, set the TikTok Minis client key and secret, and configure a reachable MongoDB database. Generate `MINI_API_SESSION_SECRET` with a cryptographically random value. `TIKTOK_TOKEN_ENCRYPTION_KEY` must be a base64-encoded 32-byte key; for example, generate one locally with `openssl rand -base64 32` and keep it in the deployment secret store. Never commit `.env` or expose the TikTok client secret to the web app.
 
-Set `MINI_WEB_ORIGIN` to the web app's origin. Multiple origins may be comma-separated. The default allows Vite at `http://localhost:5173` during local development. Use `*` when the frontend is hosted by TikTok Minis and its runtime origin is not a stable developer-controlled domain; this API uses bearer tokens, not cookie authentication.
+The API reflects each request's `Origin` for CORS because a TikTok Minis runtime may use an origin that is not a stable developer-controlled domain. Authentication uses bearer tokens, not cookies, and no credentialed CORS is enabled. No `MINI_WEB_ORIGIN` setting is needed.
 
 ## Run locally
 
@@ -32,6 +32,5 @@ Add these environment variables to the Vercel project for each environment you d
 - `TIKTOK_MINIS_CLIENT_SECRET`
 - `MINI_API_SESSION_SECRET`
 - `TIKTOK_TOKEN_ENCRYPTION_KEY`
-- `MINI_WEB_ORIGIN` set to the frontend origin, including `https://` and without a trailing slash; use `*` for a TikTok-hosted Minis frontend whose runtime origin is not fixed or documented
 
 Configure the MongoDB provider to accept connections from Vercel, and set `VITE_MINI_API_URL` in the frontend Vercel project to this API deployment's origin. The app reuses its MongoDB connection across warm function instances and connects on demand after cold starts.

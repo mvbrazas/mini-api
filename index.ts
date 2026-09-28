@@ -27,15 +27,11 @@ if (Buffer.from(process.env.TIKTOK_TOKEN_ENCRYPTION_KEY as string, "base64").len
     throw new Error("TIKTOK_TOKEN_ENCRYPTION_KEY must decode to 32 bytes");
 }
 
-const allowedOrigins = (process.env.MINI_WEB_ORIGIN || "http://localhost:5173")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
 const app = express();
 
 app.disable("x-powered-by");
 app.use(cors({
-    origin: allowedOrigins.includes("*") ? "*" : allowedOrigins,
+    origin: true,
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type", "Authorization"],
 }));
