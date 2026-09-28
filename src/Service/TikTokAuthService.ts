@@ -122,7 +122,7 @@ async function persistTokens(
 async function syncTikTokUserInfo(openId: string, accessToken: string, scope: string, explicitAuthorization = false) {
     const grantedScopes = new Set(scope.split(/[\s,]+/).filter(Boolean));
     const fields: string[] = [];
-    if (grantedScopes.has("user.info.basic")) fields.push("display_name", "avatar_url");
+    if (grantedScopes.has("user.info.basic")) fields.push("display_name", "avatar_url", "username");
     if (grantedScopes.has("user.info.profile")) fields.push("username");
     await TikTokUserInfoDB.findOneAndUpdate({ openId }, {
         $setOnInsert: { openId, username: null, displayName: null, avatarUrl: null, email: null },
@@ -138,19 +138,28 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
         return;
     }
 
-    const url = new URL(USER_INFO_ENDPOINT);
-    url.searchParams.set("fields", fields.join(","));
-
     try {
-        const response = await fetch(url, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-            signal: AbortSignal.timeout(10_000),
-        });
-        const result = await response.json().catch(() => null) as TikTokUserInfoResponse | null;
+        const fetchUserInfo = async (requestedFields: string[]) => {
+            const url = new URL(USER_INFO_ENDPOINT);
+            url.searchParams.set("fields", requestedFields.join(","));
+            const response = await fetch(url, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+                signal: AbortSignal.timeout(10_000),
+            });
+            const result = await response.json().catch(() => null) as TikTokUserInfoResponse | null;
+            return { response, result };
+        };
+
+        let requestedFields = fields;
+        let { response, result } = await fetchUserInfo(requestedFields);
+        if ((!response.ok || !result?.data?.user || result.error?.code && result.error.code !== "ok") && fields.includes("username")) {
+            requestedFields = fields.filter((field) => field !== "username");
+            ({ response, result } = await fetchUserInfo(requestedFields));
+        }
         if (!response.ok || !result?.data?.user || result.error?.code && result.error.code !== "ok") {
             await writeErrorLog("syncTikTokUserInfo", result?.error?.code || String(response.status), "TikTok profile lookup failed", {
                 stage: "profile_lookup",
-                requestedFields: fields,
+                requestedFields,
             });
             return;
         }

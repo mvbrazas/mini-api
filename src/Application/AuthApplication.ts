@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { writeErrorLog } from "../Helpers/errorLogging";
 import TikTokUserDB from "../Models/TikTokUser";
+import TikTokUserInfoDB from "../Models/TikTokUserInfo";
 import { exchangeAuthorizationCode, refreshUserTokens, TikTokAuthError } from "../Service/TikTokAuthService";
 
 function createSessionToken(openId: string) {
@@ -56,6 +57,26 @@ export async function silentLogin(request: Request, response: Response) {
     } catch (error) {
         await sendAuthError(request, response, error, "silentLogin");
     }
+}
+
+export async function saveProfileEmail(request: Request, response: Response) {
+    const openId = getSessionOpenId(request);
+    if (!openId) {
+        response.status(401).json({ message: "Your session has expired. Please sign in again." });
+        return;
+    }
+
+    const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "";
+    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        response.status(400).json({ message: "Enter a valid email address." });
+        return;
+    }
+
+    await TikTokUserInfoDB.findOneAndUpdate({ openId }, {
+        $set: { email },
+        $setOnInsert: { openId, username: null, displayName: null, avatarUrl: null },
+    }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
+    response.json({ saved: true, email });
 }
 
 export async function refreshSession(request: Request, response: Response) {

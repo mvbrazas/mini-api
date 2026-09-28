@@ -1,6 +1,6 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
-import { refreshSession, silentLogin } from "../Application/AuthApplication";
+import { refreshSession, saveProfileEmail, silentLogin } from "../Application/AuthApplication";
 import { clientDiagnostic } from "../Application/DiagnosticApplication";
 
 const router = express.Router();
@@ -13,6 +13,7 @@ const clientDiagnosticLimit = rateLimit({
 
 router.post("/silent-login", silentLogin);
 router.post("/refresh", refreshSession);
+router.put("/profile/email", saveProfileEmail);
 router.post("/client-error", clientDiagnosticLimit, clientDiagnostic);
 
 export default router;
