@@ -34,7 +34,11 @@ const allowedOrigins = (process.env.MINI_WEB_ORIGIN || "http://localhost:5173")
 const app = express();
 
 app.disable("x-powered-by");
-app.use(cors({ origin: allowedOrigins, methods: ["GET", "POST"], allowedHeaders: ["Content-Type", "Authorization"] }));
+app.use(cors({
+    origin: allowedOrigins.includes("*") ? "*" : allowedOrigins,
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+}));
 app.use(express.json({ limit: "10kb" }));
 
 app.use(async (request, response, next) => {
