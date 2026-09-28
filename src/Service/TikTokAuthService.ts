@@ -13,12 +13,18 @@ interface TikTokTokenResponse {
     scope?: string;
     token_type?: string;
     error?: string;
+    error_description?: string;
 }
 
 export class TikTokAuthError extends Error {
-    constructor(message: string, readonly statusCode: number) {
+    readonly statusCode: number;
+    readonly diagnosticCode?: string;
+
+    constructor(message: string, statusCode: number, diagnosticCode?: string) {
         super(message);
         this.name = "TikTokAuthError";
+        this.statusCode = statusCode;
+        this.diagnosticCode = diagnosticCode;
     }
 }
 
@@ -40,7 +46,13 @@ async function requestToken(parameters: URLSearchParams): Promise<TikTokTokenRes
 
     const data = await response.json().catch(() => null) as TikTokTokenResponse | null;
     if (!response.ok || !data || data.error) {
-        throw new TikTokAuthError("TikTok rejected the authorization code or token", 401);
+        const providerCode = typeof data?.error === "string" && /^[a-z0-9_-]{1,80}$/i.test(data.error)
+            ? data.error
+            : `http_${response.status}`;
+        const description = typeof data?.error_description === "string"
+            ? `: ${data.error_description}`
+            : "";
+        throw new TikTokAuthError(`TikTok token endpoint rejected the request${description}`, response.ok ? 401 : 502, providerCode);
     }
     return data;
 }

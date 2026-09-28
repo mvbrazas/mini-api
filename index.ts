@@ -30,6 +30,7 @@ if (Buffer.from(process.env.TIKTOK_TOKEN_ENCRYPTION_KEY as string, "base64").len
 const app = express();
 
 app.disable("x-powered-by");
+app.set("trust proxy", 1);
 app.use(cors({
     origin: true,
     methods: ["GET", "POST"],

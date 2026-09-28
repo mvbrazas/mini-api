@@ -21,6 +21,8 @@ The API listens on port `3001` by default. `GET /healthCheck` reports service he
 
 The web app can target a different API origin with `VITE_MINI_API_URL`. Provider access and refresh tokens are never returned to the browser.
 
+TikTok Minis client failures are submitted to `POST /auth/client-error` and stored in MongoDB's `ErrorLogs` collection alongside backend silent-login and refresh failures. Inspect `functionName`, `errorCode`, `errorResponse`, and `parameters.stage` to identify whether the failure occurred in the Minis SDK, the browser-to-API request, or the TikTok OAuth exchange. Authorization codes and tokens are not included in the client diagnostic payload.
+
 ## Deploy to Vercel
 
 Create a Vercel project for this API and set its **Root Directory** to `mini-api` (or the repository root if this repository contains only the API). Vercel detects the exported Express app in `index.ts`; no custom Vercel build configuration is required. Keep the `npm run dev` command for local development; Vercel invokes the Express app as a function.
