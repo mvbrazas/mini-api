@@ -4,6 +4,7 @@ import { redactClientMessage, writeErrorLog } from "../Helpers/errorLogging";
 const ALLOWED_STAGES = new Set([
     "minis_sdk_missing",
     "minis_login",
+    "minis_authorize",
     "api_request",
     "api_response",
     "api_refresh",
