@@ -1,7 +1,10 @@
 import TikTokUserDB from "../Models/TikTokUser";
+import TikTokUserInfoDB, { TikTokUserInfo } from "../Models/TikTokUserInfo";
+import { writeErrorLog } from "../Helpers/errorLogging";
 import { decryptToken, encryptToken } from "../Helpers/tokenEncryption";
 
 const TOKEN_ENDPOINT = "https://open.tiktokapis.com/v2/oauth/token/";
+const USER_INFO_ENDPOINT = "https://open.tiktokapis.com/v2/user/info/";
 const REFRESH_EARLY_MS = 30 * 60 * 1000;
 
 interface TikTokTokenResponse {
@@ -14,6 +17,19 @@ interface TikTokTokenResponse {
     token_type?: string;
     error?: string;
     error_description?: string;
+}
+
+interface TikTokUserInfoResponse {
+    data?: {
+        user?: {
+            username?: string;
+            display_name?: string;
+            avatar_url?: string;
+        };
+    };
+    error?: {
+        code?: string;
+    };
 }
 
 export class TikTokAuthError extends Error {
@@ -79,23 +95,69 @@ async function persistTokens(
         : existing?.refreshTokenExpiresAt;
     if (!refreshExpiry) throw new TikTokAuthError("TikTok returned an invalid refresh token expiry", 502);
 
+    const scope = data.scope || existing?.scope || "";
     await TikTokUserDB.findOneAndUpdate({ openId }, {
         $set: {
             encryptedAccessToken: encryptToken(data.access_token),
             encryptedRefreshToken: encryptToken(data.refresh_token || previousRefreshToken as string),
             accessTokenExpiresAt: tokenExpiry(data.expires_in, "access token expiry"),
             refreshTokenExpiresAt: refreshExpiry,
-            scope: data.scope || existing?.scope || "",
+            scope,
             tokenType: data.token_type || existing?.tokenType || "Bearer",
             reauthenticationRequired: false,
         },
     }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
+    return scope;
+}
+
+async function syncTikTokUserInfo(openId: string, accessToken: string, scope: string) {
+    const grantedScopes = new Set(scope.split(/[\s,]+/).filter(Boolean));
+    const fields: string[] = [];
+    if (grantedScopes.has("user.info.basic")) fields.push("display_name", "avatar_url");
+    if (grantedScopes.has("user.info.profile")) fields.push("username");
+    if (fields.length === 0) return;
+
+    const url = new URL(USER_INFO_ENDPOINT);
+    url.searchParams.set("fields", fields.join(","));
+
+    try {
+        const response = await fetch(url, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: AbortSignal.timeout(10_000),
+        });
+        const result = await response.json().catch(() => null) as TikTokUserInfoResponse | null;
+        if (!response.ok || !result?.data?.user || result.error?.code && result.error.code !== "ok") {
+            await writeErrorLog("syncTikTokUserInfo", result?.error?.code || String(response.status), "TikTok profile lookup failed", {
+                stage: "profile_lookup",
+                requestedFields: fields,
+            });
+            return;
+        }
+
+        const user = result.data.user;
+        const profile: Partial<Pick<TikTokUserInfo, "username" | "displayName" | "avatarUrl">> = {};
+        if (typeof user.username === "string" && user.username.length > 0) profile.username = user.username;
+        if (typeof user.display_name === "string" && user.display_name.length > 0) profile.displayName = user.display_name;
+        if (typeof user.avatar_url === "string" && user.avatar_url.length > 0) profile.avatarUrl = user.avatar_url;
+        if (Object.keys(profile).length === 0) return;
+
+        await TikTokUserInfoDB.findOneAndUpdate({ openId }, {
+            $set: profile,
+            $setOnInsert: { openId },
+        }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
+    } catch {
+        await writeErrorLog("syncTikTokUserInfo", "profile_lookup_failed", "TikTok profile lookup request failed", {
+            stage: "profile_lookup",
+            requestedFields: fields,
+        });
+    }
 }
 
 export async function exchangeAuthorizationCode(code: string) {
     const data = await requestToken(new URLSearchParams({ code, grant_type: "authorization_code" }));
     if (!data.open_id) throw new TikTokAuthError("TikTok did not return a user identity", 502);
-    await persistTokens(data.open_id, data);
+    const scope = await persistTokens(data.open_id, data);
+    await syncTikTokUserInfo(data.open_id, data.access_token as string, scope);
     return data.open_id;
 }
 
@@ -113,7 +175,8 @@ export async function refreshUserTokens(openId: string) {
             refresh_token: refreshToken,
             grant_type: "refresh_token",
         }));
-        await persistTokens(openId, data, refreshToken);
+        const scope = await persistTokens(openId, data, refreshToken);
+        await syncTikTokUserInfo(openId, data.access_token as string, scope);
     } catch (error) {
         if (error instanceof TikTokAuthError && error.statusCode === 401) {
             await TikTokUserDB.updateOne({ openId }, { $set: { reauthenticationRequired: true } }).exec();
