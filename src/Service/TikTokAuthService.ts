@@ -115,7 +115,13 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
     const fields: string[] = [];
     if (grantedScopes.has("user.info.basic")) fields.push("display_name", "avatar_url");
     if (grantedScopes.has("user.info.profile")) fields.push("username");
-    if (fields.length === 0) return;
+    if (fields.length === 0) {
+        await writeErrorLog("syncTikTokUserInfo", "profile_scope_missing", "TikTok did not grant profile information scopes", {
+            stage: "profile_lookup_scope",
+            grantedScopes: Array.from(grantedScopes),
+        });
+        return;
+    }
 
     const url = new URL(USER_INFO_ENDPOINT);
     url.searchParams.set("fields", fields.join(","));
