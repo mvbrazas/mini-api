@@ -45,6 +45,16 @@ export async function clientDiagnostic(request: Request, response: Response) {
     const providerErrorCode = typeof diagnosticData.providerErrorCode === "string"
         ? diagnosticData.providerErrorCode.slice(0, 80)
         : undefined;
+    const providerErrorMessage = typeof diagnosticData.providerErrorMessage === "string"
+        ? redactClientMessage(diagnosticData.providerErrorMessage).slice(0, 250)
+        : undefined;
+    const providerErrorFields = Array.isArray(diagnosticData.providerErrorFields)
+        ? diagnosticData.providerErrorFields
+            .filter((field): field is string => typeof field === "string")
+            .map((field) => field.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 80))
+            .filter(Boolean)
+            .slice(0, 20)
+        : [];
     await writeErrorLog(
         "TikTok Minis client login",
         stage,
@@ -56,6 +66,8 @@ export async function clientDiagnostic(request: Request, response: Response) {
             requestedScopes,
             grantedScopes,
             providerErrorCode,
+            providerErrorMessage,
+            providerErrorFields,
         },
     );
     response.status(202).json({ logged: true });
