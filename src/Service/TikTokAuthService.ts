@@ -191,12 +191,17 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
             return { response, result };
         };
 
-        const requestedFields = fields;
-        const { response, result } = await fetchUserInfo(requestedFields);
+        let requestedFields = fields;
+        let { response, result } = await fetchUserInfo(requestedFields);
+        if ((!response.ok || !result?.data?.user || result.error?.code && result.error.code !== "ok") && fields.includes("username")) {
+            requestedFields = fields.filter((field) => field !== "username");
+            ({ response, result } = await fetchUserInfo(requestedFields));
+        }
         if (!response.ok || !result?.data?.user || result.error?.code && result.error.code !== "ok") {
             await writeErrorLog("syncTikTokUserInfo", result?.error?.code || String(response.status), "TikTok profile lookup failed", {
                 stage: "profile_lookup",
                 requestedFields,
+                grantedScopes: Array.from(grantedScopes),
             });
             return;
         }
@@ -240,6 +245,7 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
         await writeErrorLog("syncTikTokUserInfo", "profile_lookup_failed", "TikTok profile lookup request failed", {
             stage: "profile_lookup",
             requestedFields: fields,
+            grantedScopes: Array.from(grantedScopes),
         });
     }
 }
