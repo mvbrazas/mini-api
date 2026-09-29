@@ -22,9 +22,20 @@ interface TikTokTokenResponse {
 interface TikTokUserInfoResponse {
     data?: {
         user?: {
-            username?: string;
-            display_name?: string;
+            open_id?: string;
+            union_id?: string;
             avatar_url?: string;
+            avatar_url_100?: string;
+            avatar_large_url?: string;
+            display_name?: string;
+            bio_description?: string;
+            profile_deep_link?: string;
+            is_verified?: boolean;
+            username?: string;
+            follower_count?: number;
+            following_count?: number;
+            likes_count?: number;
+            video_count?: number;
         };
     };
     error?: {
@@ -122,10 +133,40 @@ async function persistTokens(
 async function syncTikTokUserInfo(openId: string, accessToken: string, scope: string, explicitAuthorization = false) {
     const grantedScopes = new Set(scope.split(/[\s,]+/).filter(Boolean));
     const fields: string[] = [];
-    if (grantedScopes.has("user.info.basic")) fields.push("display_name", "avatar_url", "username");
-    if (grantedScopes.has("user.info.profile")) fields.push("username");
+    if (grantedScopes.has("user.info.basic")) {
+        fields.push("open_id", "union_id", "avatar_url", "avatar_url_100", "avatar_large_url", "display_name");
+    }
+    if (grantedScopes.has("user.info.profile")) {
+        fields.push("bio_description", "profile_deep_link", "is_verified", "username");
+    }
+    if (grantedScopes.has("user.info.stats")) {
+        fields.push("follower_count", "following_count", "likes_count", "video_count");
+    }
+    const legacyProfile = await TikTokUserInfoDB.collection.findOne({ openId }) as { usernameSource?: string } | null;
+    await TikTokUserInfoDB.collection.updateOne({ openId }, {
+        $unset: {
+            email: "",
+            usernameSource: "",
+            ...(legacyProfile?.usernameSource === "user_provided" ? { username: "" } : {}),
+        },
+    });
     await TikTokUserInfoDB.findOneAndUpdate({ openId }, {
-        $setOnInsert: { openId, username: null, displayName: null, avatarUrl: null, email: null },
+        $setOnInsert: {
+            openId,
+            unionId: null,
+            avatarUrl: null,
+            avatarUrl100: null,
+            avatarLargeUrl: null,
+            displayName: null,
+            bioDescription: null,
+            profileDeepLink: null,
+            isVerified: null,
+            username: null,
+            followerCount: null,
+            followingCount: null,
+            likesCount: null,
+            videoCount: null,
+        },
     }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
 
     if (fields.length === 0) {
@@ -150,12 +191,8 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
             return { response, result };
         };
 
-        let requestedFields = fields;
-        let { response, result } = await fetchUserInfo(requestedFields);
-        if ((!response.ok || !result?.data?.user || result.error?.code && result.error.code !== "ok") && fields.includes("username")) {
-            requestedFields = fields.filter((field) => field !== "username");
-            ({ response, result } = await fetchUserInfo(requestedFields));
-        }
+        const requestedFields = fields;
+        const { response, result } = await fetchUserInfo(requestedFields);
         if (!response.ok || !result?.data?.user || result.error?.code && result.error.code !== "ok") {
             await writeErrorLog("syncTikTokUserInfo", result?.error?.code || String(response.status), "TikTok profile lookup failed", {
                 stage: "profile_lookup",
@@ -165,16 +202,34 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
         }
 
         const user = result.data.user;
-        const profile: Partial<Pick<TikTokUserInfo, "username" | "usernameSource" | "displayName" | "avatarUrl">> = {};
-        if (typeof user.username === "string" && user.username.length > 0) {
-            const existingInfo = await TikTokUserInfoDB.findOne({ openId }).select("usernameSource").exec();
-            if (existingInfo?.usernameSource !== "user_provided") {
-                profile.username = user.username;
-                profile.usernameSource = "tiktok";
-            }
-        }
-        if (typeof user.display_name === "string" && user.display_name.length > 0) profile.displayName = user.display_name;
-        if (typeof user.avatar_url === "string" && user.avatar_url.length > 0) profile.avatarUrl = user.avatar_url;
+        const profile: Partial<Pick<TikTokUserInfo,
+            | "unionId"
+            | "avatarUrl"
+            | "avatarUrl100"
+            | "avatarLargeUrl"
+            | "displayName"
+            | "bioDescription"
+            | "profileDeepLink"
+            | "isVerified"
+            | "username"
+            | "followerCount"
+            | "followingCount"
+            | "likesCount"
+            | "videoCount"
+        >> = {};
+        if (typeof user.union_id === "string") profile.unionId = user.union_id;
+        if (typeof user.avatar_url === "string") profile.avatarUrl = user.avatar_url;
+        if (typeof user.avatar_url_100 === "string") profile.avatarUrl100 = user.avatar_url_100;
+        if (typeof user.avatar_large_url === "string") profile.avatarLargeUrl = user.avatar_large_url;
+        if (typeof user.display_name === "string") profile.displayName = user.display_name;
+        if (typeof user.bio_description === "string") profile.bioDescription = user.bio_description;
+        if (typeof user.profile_deep_link === "string") profile.profileDeepLink = user.profile_deep_link;
+        if (typeof user.is_verified === "boolean") profile.isVerified = user.is_verified;
+        if (typeof user.username === "string") profile.username = user.username;
+        if (typeof user.follower_count === "number" && Number.isFinite(user.follower_count)) profile.followerCount = user.follower_count;
+        if (typeof user.following_count === "number" && Number.isFinite(user.following_count)) profile.followingCount = user.following_count;
+        if (typeof user.likes_count === "number" && Number.isFinite(user.likes_count)) profile.likesCount = user.likes_count;
+        if (typeof user.video_count === "number" && Number.isFinite(user.video_count)) profile.videoCount = user.video_count;
         if (Object.keys(profile).length === 0) return;
 
         await TikTokUserInfoDB.findOneAndUpdate({ openId }, {

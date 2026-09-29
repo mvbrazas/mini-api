@@ -59,46 +59,6 @@ export async function silentLogin(request: Request, response: Response) {
     }
 }
 
-export async function saveProfileEmail(request: Request, response: Response) {
-    const openId = getSessionOpenId(request);
-    if (!openId) {
-        response.status(401).json({ message: "Your session has expired. Please sign in again." });
-        return;
-    }
-
-    const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "";
-    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        response.status(400).json({ message: "Enter a valid email address." });
-        return;
-    }
-
-    await TikTokUserInfoDB.findOneAndUpdate({ openId }, {
-        $set: { email },
-        $setOnInsert: { openId, username: null, displayName: null, avatarUrl: null },
-    }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
-    response.json({ saved: true, email });
-}
-
-export async function saveProfileUsername(request: Request, response: Response) {
-    const openId = getSessionOpenId(request);
-    if (!openId) {
-        response.status(401).json({ message: "Your session has expired. Please sign in again." });
-        return;
-    }
-
-    const submittedUsername = typeof request.body?.username === "string" ? request.body.username.trim().replace(/^@/, "") : "";
-    if (!/^[A-Za-z0-9._]{2,24}$/.test(submittedUsername)) {
-        response.status(400).json({ message: "Enter a valid TikTok username (2-24 letters, numbers, periods, or underscores)." });
-        return;
-    }
-
-    await TikTokUserInfoDB.findOneAndUpdate({ openId }, {
-        $set: { username: submittedUsername, usernameSource: "user_provided" },
-        $setOnInsert: { openId, displayName: null, avatarUrl: null, email: null },
-    }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
-    response.json({ saved: true, username: submittedUsername });
-}
-
 export async function getProfileInfo(request: Request, response: Response) {
     const openId = getSessionOpenId(request);
     if (!openId) {
@@ -106,13 +66,24 @@ export async function getProfileInfo(request: Request, response: Response) {
         return;
     }
 
-    const profile = await TikTokUserInfoDB.findOne({ openId }).select("username usernameSource email displayName avatarUrl").lean().exec();
+    const profile = await TikTokUserInfoDB.findOne({ openId })
+        .select("openId unionId avatarUrl avatarUrl100 avatarLargeUrl displayName bioDescription profileDeepLink isVerified username followerCount followingCount likesCount videoCount")
+        .lean().exec();
     response.json({
-        username: profile?.username || "",
-        usernameSource: profile?.usernameSource || null,
-        email: profile?.email || "",
-        displayName: profile?.displayName || "",
-        avatarUrl: profile?.avatarUrl || "",
+        openId: profile?.openId || null,
+        unionId: profile?.unionId || null,
+        avatarUrl: profile?.avatarUrl || null,
+        avatarUrl100: profile?.avatarUrl100 || null,
+        avatarLargeUrl: profile?.avatarLargeUrl || null,
+        displayName: profile?.displayName || null,
+        bioDescription: profile?.bioDescription || null,
+        profileDeepLink: profile?.profileDeepLink || null,
+        isVerified: profile?.isVerified ?? null,
+        username: profile?.username || null,
+        followerCount: profile?.followerCount ?? null,
+        followingCount: profile?.followingCount ?? null,
+        likesCount: profile?.likesCount ?? null,
+        videoCount: profile?.videoCount ?? null,
     });
 }
 
