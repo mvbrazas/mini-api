@@ -69,6 +69,12 @@ export async function getProfileInfo(request: Request, response: Response) {
     const profile = await TikTokUserInfoDB.findOne({ openId })
         .select("openId unionId avatarUrl avatarUrl100 avatarLargeUrl displayName bioDescription profileDeepLink isVerified username followerCount followingCount likesCount videoCount")
         .lean().exec();
+    const availableFields = profile
+        ? Object.entries(profile)
+            .filter(([field, value]) => field !== "openId" && value !== null && value !== undefined)
+            .map(([field]) => field)
+        : [];
+    console.info("TikTok profile API response", { found: Boolean(profile), availableFields });
     response.json({
         openId: profile?.openId || null,
         unionId: profile?.unionId || null,

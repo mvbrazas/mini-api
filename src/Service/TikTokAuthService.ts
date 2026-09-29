@@ -170,6 +170,10 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
     }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
 
     if (fields.length === 0) {
+        console.info("TikTok profile sync skipped", {
+            reason: "no_supported_scopes",
+            grantedScopes: Array.from(grantedScopes),
+        });
         if (explicitAuthorization) {
             await writeErrorLog("syncTikTokUserInfo", "profile_scope_missing", "TikTok did not grant profile information scopes", {
                 stage: "profile_lookup_scope",
@@ -188,6 +192,18 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
                 signal: AbortSignal.timeout(10_000),
             });
             const result = await response.json().catch(() => null) as TikTokUserInfoResponse | null;
+            const returnedFields = result?.data?.user
+                ? Object.entries(result.data.user)
+                    .filter(([, value]) => value !== undefined && value !== null)
+                    .map(([field]) => field)
+                : [];
+            console.info("TikTok User Info response", {
+                httpStatus: response.status,
+                requestedFields,
+                returnedFields,
+                grantedScopes: Array.from(grantedScopes),
+                providerErrorCode: result?.error?.code || null,
+            });
             return { response, result };
         };
 
@@ -241,6 +257,7 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
             $set: profile,
             $setOnInsert: { openId },
         }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
+        console.info("TikTok profile fields saved", { fields: Object.keys(profile) });
     } catch {
         await writeErrorLog("syncTikTokUserInfo", "profile_lookup_failed", "TikTok profile lookup request failed", {
             stage: "profile_lookup",
