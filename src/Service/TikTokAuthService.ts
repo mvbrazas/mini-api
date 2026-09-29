@@ -138,6 +138,8 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
     }
     if (grantedScopes.has("user.info.profile")) {
         fields.push("bio_description", "profile_deep_link", "is_verified", "username");
+    } else if (grantedScopes.has("user.info.basic")) {
+        fields.push("username");
     }
     if (grantedScopes.has("user.info.stats")) {
         fields.push("follower_count", "following_count", "likes_count", "video_count");

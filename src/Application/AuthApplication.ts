@@ -66,15 +66,19 @@ export async function getProfileInfo(request: Request, response: Response) {
         return;
     }
 
-    const profile = await TikTokUserInfoDB.findOne({ openId })
-        .select("openId unionId avatarUrl avatarUrl100 avatarLargeUrl displayName bioDescription profileDeepLink isVerified username followerCount followingCount likesCount videoCount")
-        .lean().exec();
+    const [profile, tikTokUser] = await Promise.all([
+        TikTokUserInfoDB.findOne({ openId })
+            .select("openId unionId avatarUrl avatarUrl100 avatarLargeUrl displayName bioDescription profileDeepLink isVerified username followerCount followingCount likesCount videoCount")
+            .lean().exec(),
+        TikTokUserDB.findOne({ openId }).select("scope").lean().exec(),
+    ]);
+    const grantedScopes = (tikTokUser?.scope || "").split(/[\s,]+/).filter(Boolean);
     const availableFields = profile
         ? Object.entries(profile)
             .filter(([field, value]) => field !== "openId" && value !== null && value !== undefined)
             .map(([field]) => field)
         : [];
-    console.info("TikTok profile API response", { found: Boolean(profile), availableFields });
+    console.info("TikTok profile API response", { found: Boolean(profile), grantedScopes, availableFields });
     response.json({
         openId: profile?.openId || null,
         unionId: profile?.unionId || null,
