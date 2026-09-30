@@ -24,6 +24,7 @@ interface TikTokUserInfoResponse {
         user?: {
             display_name?: string;
             avatar_url?: string;
+            username?: string;
         };
     };
     error?: {
@@ -34,6 +35,7 @@ interface TikTokUserInfoResponse {
 export interface TikTokBasicProfile {
     displayName: string;
     avatarUrl: string;
+    username: string;
 }
 
 export class TikTokAuthError extends Error {
@@ -126,13 +128,14 @@ async function persistTokens(
 async function fetchTikTokBasicProfile(openId: string, accessToken: string): Promise<TikTokBasicProfile | null> {
     try {
         const url = new URL(USER_INFO_ENDPOINT);
-        url.searchParams.set("fields", "display_name,avatar_url");
+        url.searchParams.set("fields", "display_name,avatar_url,username");
         const response = await fetch(url, {
             headers: { Authorization: `Bearer ${accessToken}` },
             signal: AbortSignal.timeout(10_000),
         });
         const result = await response.json().catch(() => null) as TikTokUserInfoResponse | null;
         const user = result?.data?.user;
+        console.log("Fetched TikTok user info:", user);
         if (!response.ok || !user || result?.error?.code && result.error.code !== "ok") {
             await writeErrorLog("fetchTikTokBasicProfile", result?.error?.code || String(response.status), "TikTok basic profile lookup failed", {
                 stage: "profile_lookup",
@@ -143,6 +146,7 @@ async function fetchTikTokBasicProfile(openId: string, accessToken: string): Pro
         const profile = {
             displayName: user.display_name || "",
             avatarUrl: user.avatar_url || "",
+            username: user.username || "",
         };
         if (!profile.displayName && !profile.avatarUrl) return null;
 
