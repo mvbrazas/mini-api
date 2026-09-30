@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { writeErrorLog } from "../Helpers/errorLogging";
 import TikTokUserDB from "../Models/TikTokUser";
-import { exchangeAuthorizationCode, fetchTikTokUserInfo, refreshUserTokens, TikTokAuthError } from "../Service/TikTokAuthService";
+import { exchangeAuthorizationCode, refreshUserTokens, TikTokAuthError } from "../Service/TikTokAuthService";
 
 function createSessionToken(openId: string) {
     return jwt.sign({ sub: openId }, process.env.MINI_API_SESSION_SECRET as string, { expiresIn: "24h" });
@@ -50,44 +50,17 @@ export async function silentLogin(request: Request, response: Response) {
     }
 
     try {
-        const replaceExistingScopes = request.body?.profileAuthorization === true;
-        const { openId, scope } = await exchangeAuthorizationCode(code, replaceExistingScopes);
-        response.json({ authenticated: true, sessionToken: createSessionToken(openId), grantedScopes: scope });
+        const profileAuthorization = request.body?.profileAuthorization === true;
+        const { openId, scope, profile } = await exchangeAuthorizationCode(code, profileAuthorization);
+        response.json({
+            authenticated: true,
+            sessionToken: createSessionToken(openId),
+            grantedScopes: scope,
+            ...(profileAuthorization ? { profile } : {}),
+        });
     } catch (error) {
         await sendAuthError(request, response, error, "silentLogin");
     }
-}
-
-export async function getProfileInfo(request: Request, response: Response) {
-    const openId = getSessionOpenId(request);
-    if (!openId) {
-        response.status(401).json({ message: "Your session has expired. Please sign in again." });
-        return;
-    }
-
-    const profile = await fetchTikTokUserInfo(openId);
-    const availableFields = profile
-        ? Object.entries(profile)
-            .filter(([, value]) => value !== null && value !== undefined)
-            .map(([field]) => field)
-        : [];
-    console.info("TikTok live profile response", { found: Boolean(profile), availableFields });
-    response.json({
-        openId,
-        unionId: profile?.unionId || null,
-        avatarUrl: profile?.avatarUrl || null,
-        avatarUrl100: profile?.avatarUrl100 || null,
-        avatarLargeUrl: profile?.avatarLargeUrl || null,
-        displayName: profile?.displayName || null,
-        bioDescription: profile?.bioDescription || null,
-        profileDeepLink: profile?.profileDeepLink || null,
-        isVerified: profile?.isVerified ?? null,
-        username: profile?.username || null,
-        followerCount: profile?.followerCount ?? null,
-        followingCount: profile?.followingCount ?? null,
-        likesCount: profile?.likesCount ?? null,
-        videoCount: profile?.videoCount ?? null,
-    });
 }
 
 export async function refreshSession(request: Request, response: Response) {
