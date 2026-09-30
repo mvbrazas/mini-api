@@ -5,7 +5,12 @@ import { decryptToken, encryptToken } from "../Helpers/tokenEncryption";
 
 const TOKEN_ENDPOINT = "https://open.tiktokapis.com/v2/oauth/token/";
 const USER_INFO_ENDPOINT = "https://open.tiktokapis.com/v2/user/info/";
+const BASIC_PROFILE_SCOPE = "user.info.basic";
 const REFRESH_EARLY_MS = 30 * 60 * 1000;
+
+function parseScopes(scopes: string | undefined) {
+    return new Set((scopes || "").split(/[\s,]+/).filter(Boolean));
+}
 
 interface TikTokTokenResponse {
     open_id?: string;
@@ -124,8 +129,8 @@ async function persistTokens(
 }
 
 async function fetchTikTokBasicProfile(openId: string, accessToken: string, scope: string): Promise<TikTokBasicProfile | null> {
-    const grantedScopes = new Set(scope.split(/[\s,]+/).filter(Boolean));
-    if (!grantedScopes.has("user.info.basic")) {
+    const grantedScopes = parseScopes(scope);
+    if (!grantedScopes.has(BASIC_PROFILE_SCOPE)) {
         throw new TikTokAuthError("TikTok did not grant user.info.basic", 403, "profile_scope_missing");
     }
 
@@ -162,6 +167,43 @@ async function fetchTikTokBasicProfile(openId: string, accessToken: string, scop
         });
         return null;
     }
+}
+
+export async function getCachedTikTokBasicProfile(openId: string) {
+    const profile = await TikTokUserInfoDB.findOne({ openId }).exec();
+    if (!profile) return null;
+    return {
+        displayName: profile.displayName || "",
+        avatarUrl: profile.avatarUrl || "",
+    };
+}
+
+export async function fetchAuthorizedTikTokBasicProfile(openId: string, grantedScopes?: string) {
+    const reportedScopes = parseScopes(grantedScopes);
+    if (grantedScopes !== undefined && !reportedScopes.has(BASIC_PROFILE_SCOPE)) {
+        throw new TikTokAuthError("TikTok did not grant user.info.basic", 403, "profile_scope_missing");
+    }
+
+    await refreshUserTokens(openId);
+    const user = await TikTokUserDB.findOne({ openId }).select("+encryptedAccessToken").exec();
+    if (!user) throw new TikTokAuthError("TikTok account was not found", 401);
+
+    const scopes = parseScopes(user.scope);
+    if (reportedScopes.has(BASIC_PROFILE_SCOPE)) scopes.add(BASIC_PROFILE_SCOPE);
+    if (!scopes.has(BASIC_PROFILE_SCOPE)) {
+        throw new TikTokAuthError("TikTok did not grant user.info.basic", 403, "profile_scope_missing");
+    }
+
+    const profile = await fetchTikTokBasicProfile(
+        openId,
+        decryptToken(user.encryptedAccessToken),
+        Array.from(scopes).join(","),
+    );
+    if (!profile) throw new TikTokAuthError("TikTok basic profile could not be loaded", 502, "profile_lookup_failed");
+
+    scopes.add(BASIC_PROFILE_SCOPE);
+    await TikTokUserDB.updateOne({ openId }, { $set: { scope: Array.from(scopes).join(",") } }).exec();
+    return profile;
 }
 
 export async function exchangeAuthorizationCode(code: string, requestBasicProfile = false) {

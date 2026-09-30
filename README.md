@@ -17,7 +17,7 @@ npm install
 npm run dev
 ```
 
-The API listens on port `3001` by default. `GET /healthCheck` reports service health. `POST /auth/silent-login` accepts `{ "code": "..." }`, exchanges the one-time code with TikTok, stores encrypted provider tokens in MongoDB, and returns a short-lived API session token plus TikTok's granted scopes. After sign-in, the web app requests only the `user.info.basic` scope; the API reads and stores only display name and avatar URL. It does not request or store a TikTok handle or email. `POST /auth/refresh` accepts that token as a Bearer credential and refreshes TikTok credentials when the access token is within 30 minutes of expiry.
+The API listens on port `3001` by default. `GET /healthCheck` reports service health. `POST /auth/silent-login` accepts `{ "code": "..." }`, exchanges the one-time code with TikTok, stores encrypted provider tokens in MongoDB by `open_id`, and returns a short-lived API session token plus TikTok's granted scopes. The web app requests `user.info.basic` only after the user chooses to connect their profile. `POST /auth/profile/authorize` accepts the authorization code and granted scopes with the API session as a Bearer credential; the API uses the stored TikTok access token to fetch and cache only the display name and avatar URL. `GET /auth/profile` returns that cached profile. The API does not request or store a TikTok handle or email. `POST /auth/refresh` accepts the session token as a Bearer credential and refreshes TikTok credentials when the access token is within 30 minutes of expiry.
 
 The web app can target a different API origin with `VITE_MINI_API_URL`. Provider access and refresh tokens are never returned to the browser.
 
