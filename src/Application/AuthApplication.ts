@@ -2,8 +2,7 @@ import { Request, Response } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { writeErrorLog } from "../Helpers/errorLogging";
 import TikTokUserDB from "../Models/TikTokUser";
-import TikTokUserInfoDB from "../Models/TikTokUserInfo";
-import { exchangeAuthorizationCode, refreshUserTokens, TikTokAuthError } from "../Service/TikTokAuthService";
+import { exchangeAuthorizationCode, fetchTikTokUserInfo, refreshUserTokens, TikTokAuthError } from "../Service/TikTokAuthService";
 
 function createSessionToken(openId: string) {
     return jwt.sign({ sub: openId }, process.env.MINI_API_SESSION_SECRET as string, { expiresIn: "24h" });
@@ -66,21 +65,15 @@ export async function getProfileInfo(request: Request, response: Response) {
         return;
     }
 
-    const [profile, tikTokUser] = await Promise.all([
-        TikTokUserInfoDB.findOne({ openId })
-            .select("openId unionId avatarUrl avatarUrl100 avatarLargeUrl displayName bioDescription profileDeepLink isVerified username followerCount followingCount likesCount videoCount")
-            .lean().exec(),
-        TikTokUserDB.findOne({ openId }).select("scope").lean().exec(),
-    ]);
-    const grantedScopes = (tikTokUser?.scope || "").split(/[\s,]+/).filter(Boolean);
+    const profile = await fetchTikTokUserInfo(openId);
     const availableFields = profile
         ? Object.entries(profile)
-            .filter(([field, value]) => field !== "openId" && value !== null && value !== undefined)
+            .filter(([, value]) => value !== null && value !== undefined)
             .map(([field]) => field)
         : [];
-    console.info("TikTok profile API response", { found: Boolean(profile), grantedScopes, availableFields });
+    console.info("TikTok live profile response", { found: Boolean(profile), availableFields });
     response.json({
-        openId: profile?.openId || null,
+        openId,
         unionId: profile?.unionId || null,
         avatarUrl: profile?.avatarUrl || null,
         avatarUrl100: profile?.avatarUrl100 || null,

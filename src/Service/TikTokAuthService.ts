@@ -43,6 +43,42 @@ interface TikTokUserInfoResponse {
     };
 }
 
+type TikTokApiUser = NonNullable<NonNullable<TikTokUserInfoResponse["data"]>["user"]>;
+
+type TikTokProfileFields = Pick<TikTokUserInfo,
+    | "unionId"
+    | "avatarUrl"
+    | "avatarUrl100"
+    | "avatarLargeUrl"
+    | "displayName"
+    | "bioDescription"
+    | "profileDeepLink"
+    | "isVerified"
+    | "username"
+    | "followerCount"
+    | "followingCount"
+    | "likesCount"
+    | "videoCount"
+>;
+
+function mapTikTokUserFields(user: TikTokApiUser): Partial<TikTokProfileFields> {
+    const profile: Partial<TikTokProfileFields> = {};
+    if (typeof user.union_id === "string") profile.unionId = user.union_id;
+    if (typeof user.avatar_url === "string") profile.avatarUrl = user.avatar_url;
+    if (typeof user.avatar_url_100 === "string") profile.avatarUrl100 = user.avatar_url_100;
+    if (typeof user.avatar_large_url === "string") profile.avatarLargeUrl = user.avatar_large_url;
+    if (typeof user.display_name === "string") profile.displayName = user.display_name;
+    if (typeof user.bio_description === "string") profile.bioDescription = user.bio_description;
+    if (typeof user.profile_deep_link === "string") profile.profileDeepLink = user.profile_deep_link;
+    if (typeof user.is_verified === "boolean") profile.isVerified = user.is_verified;
+    if (typeof user.username === "string") profile.username = user.username;
+    if (typeof user.follower_count === "number" && Number.isFinite(user.follower_count)) profile.followerCount = user.follower_count;
+    if (typeof user.following_count === "number" && Number.isFinite(user.following_count)) profile.followingCount = user.following_count;
+    if (typeof user.likes_count === "number" && Number.isFinite(user.likes_count)) profile.likesCount = user.likes_count;
+    if (typeof user.video_count === "number" && Number.isFinite(user.video_count)) profile.videoCount = user.video_count;
+    return profile;
+}
+
 export class TikTokAuthError extends Error {
     readonly statusCode: number;
     readonly diagnosticCode?: string;
@@ -130,7 +166,12 @@ async function persistTokens(
     return scope;
 }
 
-async function syncTikTokUserInfo(openId: string, accessToken: string, scope: string, explicitAuthorization = false) {
+async function syncTikTokUserInfo(
+    openId: string,
+    accessToken: string,
+    scope: string,
+    explicitAuthorization = false,
+): Promise<Partial<TikTokProfileFields> | null> {
     const grantedScopes = new Set(scope.split(/[\s,]+/).filter(Boolean));
     const fields: string[] = [];
     if (grantedScopes.has("user.info.basic")) {
@@ -138,8 +179,6 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
     }
     if (grantedScopes.has("user.info.profile")) {
         fields.push("bio_description", "profile_deep_link", "is_verified", "username");
-    } else if (grantedScopes.has("user.info.basic")) {
-        fields.push("username");
     }
     if (grantedScopes.has("user.info.stats")) {
         fields.push("follower_count", "following_count", "likes_count", "video_count");
@@ -182,7 +221,7 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
                 grantedScopes: Array.from(grantedScopes),
             });
         }
-        return;
+        return null;
     }
 
     try {
@@ -221,51 +260,25 @@ async function syncTikTokUserInfo(openId: string, accessToken: string, scope: st
                 requestedFields,
                 grantedScopes: Array.from(grantedScopes),
             });
-            return;
+            return null;
         }
 
-        const user = result.data.user;
-        const profile: Partial<Pick<TikTokUserInfo,
-            | "unionId"
-            | "avatarUrl"
-            | "avatarUrl100"
-            | "avatarLargeUrl"
-            | "displayName"
-            | "bioDescription"
-            | "profileDeepLink"
-            | "isVerified"
-            | "username"
-            | "followerCount"
-            | "followingCount"
-            | "likesCount"
-            | "videoCount"
-        >> = {};
-        if (typeof user.union_id === "string") profile.unionId = user.union_id;
-        if (typeof user.avatar_url === "string") profile.avatarUrl = user.avatar_url;
-        if (typeof user.avatar_url_100 === "string") profile.avatarUrl100 = user.avatar_url_100;
-        if (typeof user.avatar_large_url === "string") profile.avatarLargeUrl = user.avatar_large_url;
-        if (typeof user.display_name === "string") profile.displayName = user.display_name;
-        if (typeof user.bio_description === "string") profile.bioDescription = user.bio_description;
-        if (typeof user.profile_deep_link === "string") profile.profileDeepLink = user.profile_deep_link;
-        if (typeof user.is_verified === "boolean") profile.isVerified = user.is_verified;
-        if (typeof user.username === "string") profile.username = user.username;
-        if (typeof user.follower_count === "number" && Number.isFinite(user.follower_count)) profile.followerCount = user.follower_count;
-        if (typeof user.following_count === "number" && Number.isFinite(user.following_count)) profile.followingCount = user.following_count;
-        if (typeof user.likes_count === "number" && Number.isFinite(user.likes_count)) profile.likesCount = user.likes_count;
-        if (typeof user.video_count === "number" && Number.isFinite(user.video_count)) profile.videoCount = user.video_count;
-        if (Object.keys(profile).length === 0) return;
+        const profile = mapTikTokUserFields(result.data.user);
+        if (Object.keys(profile).length === 0) return null;
 
         await TikTokUserInfoDB.findOneAndUpdate({ openId }, {
             $set: profile,
             $setOnInsert: { openId },
         }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
         console.info("TikTok profile fields saved", { fields: Object.keys(profile) });
+        return profile;
     } catch {
         await writeErrorLog("syncTikTokUserInfo", "profile_lookup_failed", "TikTok profile lookup request failed", {
             stage: "profile_lookup",
             requestedFields: fields,
             grantedScopes: Array.from(grantedScopes),
         });
+        return null;
     }
 }
 
@@ -299,4 +312,76 @@ export async function refreshUserTokens(openId: string) {
         }
         throw error;
     }
+}
+
+export async function fetchTikTokUserInfo(openId: string) {
+    await refreshUserTokens(openId);
+    const user = await TikTokUserDB.findOne({ openId }).select("+encryptedAccessToken").exec();
+    if (!user) throw new TikTokAuthError("TikTok account was not found", 401);
+
+    const accessToken = decryptToken(user.encryptedAccessToken);
+    const fieldGroups = [
+        ["open_id", "union_id", "avatar_url", "avatar_url_100", "avatar_large_url", "display_name"],
+        ["bio_description", "profile_deep_link", "is_verified", "username"],
+        ["follower_count", "following_count", "likes_count", "video_count"],
+    ];
+    const profile: Partial<TikTokProfileFields> = {};
+
+    for (const requestedFields of fieldGroups) {
+        try {
+            const url = new URL(USER_INFO_ENDPOINT);
+            url.searchParams.set("fields", requestedFields.join(","));
+            const response = await fetch(url, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+                signal: AbortSignal.timeout(10_000),
+            });
+            const result = await response.json().catch(() => null) as TikTokUserInfoResponse | null;
+            const userInfo = result?.data?.user;
+            const returnedFields = userInfo
+                ? Object.entries(userInfo)
+                    .filter(([, value]) => value !== undefined && value !== null)
+                    .map(([field]) => field)
+                : [];
+            console.info("TikTok live profile field group", {
+                httpStatus: response.status,
+                requestedFields,
+                returnedFields,
+                providerErrorCode: result?.error?.code || null,
+            });
+
+            if (!response.ok || !userInfo || result?.error?.code && result.error.code !== "ok") {
+                await writeErrorLog("fetchTikTokUserInfo", result?.error?.code || String(response.status), "TikTok profile field group request failed", {
+                    stage: "profile_field_group",
+                    requestedFields,
+                });
+                continue;
+            }
+
+            Object.assign(profile, mapTikTokUserFields(userInfo));
+        } catch {
+            await writeErrorLog("fetchTikTokUserInfo", "profile_lookup_failed", "TikTok profile field group request failed", {
+                stage: "profile_field_group",
+                requestedFields,
+            });
+        }
+    }
+
+    const legacyProfile = await TikTokUserInfoDB.collection.findOne({ openId }) as { usernameSource?: string } | null;
+    await TikTokUserInfoDB.collection.updateOne({ openId }, {
+        $unset: {
+            email: "",
+            usernameSource: "",
+            ...(legacyProfile?.usernameSource === "user_provided" ? { username: "" } : {}),
+        },
+    });
+
+    if (Object.keys(profile).length > 0) {
+        await TikTokUserInfoDB.findOneAndUpdate({ openId }, {
+            $set: profile,
+            $setOnInsert: { openId },
+        }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
+        console.info("TikTok live profile fields saved", { fields: Object.keys(profile) });
+    }
+
+    return Object.keys(profile).length > 0 ? profile : null;
 }
