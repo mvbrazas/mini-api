@@ -24,7 +24,6 @@ interface TikTokUserInfoResponse {
         user?: {
             display_name?: string;
             avatar_url?: string;
-            username?: string;
         };
     };
     error?: {
@@ -35,7 +34,6 @@ interface TikTokUserInfoResponse {
 export interface TikTokBasicProfile {
     displayName: string;
     avatarUrl: string;
-    username: string;
 }
 
 export class TikTokAuthError extends Error {
@@ -128,7 +126,7 @@ async function persistTokens(
 async function fetchTikTokBasicProfile(openId: string, accessToken: string): Promise<TikTokBasicProfile | null> {
     try {
         const url = new URL(USER_INFO_ENDPOINT);
-        url.searchParams.set("fields", "display_name,avatar_url,username");
+        url.searchParams.set("fields", "display_name,avatar_url");
         const response = await fetch(url, {
             headers: { Authorization: `Bearer ${accessToken}` },
             signal: AbortSignal.timeout(10_000),
@@ -146,7 +144,6 @@ async function fetchTikTokBasicProfile(openId: string, accessToken: string): Pro
         const profile = {
             displayName: user.display_name || "",
             avatarUrl: user.avatar_url || "",
-            username: user.username || "",
         };
         if (!profile.displayName && !profile.avatarUrl) return null;
 
