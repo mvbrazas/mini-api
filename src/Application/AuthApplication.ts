@@ -3,9 +3,9 @@ import jwt, { JwtPayload } from "jsonwebtoken";
 import { writeErrorLog } from "../Helpers/errorLogging";
 import TikTokUserDB from "../Models/TikTokUser";
 import {
+    authorizeTikTokProfile,
     exchangeAuthorizationCode,
-    fetchAuthorizedTikTokBasicProfile,
-    getCachedTikTokBasicProfile,
+    getCachedTikTokProfile,
     refreshUserTokens,
     TikTokAuthError,
 } from "../Service/TikTokAuthService";
@@ -96,7 +96,7 @@ export async function getProfile(request: Request, response: Response) {
     }
 
     try {
-        response.json({ profile: await getCachedTikTokBasicProfile(openId) });
+        response.json(await getCachedTikTokProfile(openId));
     } catch (error) {
         await sendAuthError(request, response, error, "getProfile");
     }
@@ -120,8 +120,8 @@ export async function authorizeProfile(request: Request, response: Response) {
     }
 
     try {
-        const profile = await fetchAuthorizedTikTokBasicProfile(openId, grantedScopes);
-        response.json({ profile });
+        const profile = await authorizeTikTokProfile(openId, code, grantedScopes);
+        response.json({ profile, profileScopeGranted: true });
     } catch (error) {
         await sendAuthError(request, response, error, "authorizeProfile");
     }
