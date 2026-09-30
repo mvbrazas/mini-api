@@ -1,6 +1,5 @@
 import TikTokUserDB from "../Models/TikTokUser";
 import TikTokUserInfoDB from "../Models/TikTokUserInfo";
-import { writeErrorLog } from "../Helpers/errorLogging";
 import { decryptToken, encryptToken } from "../Helpers/tokenEncryption";
 
 const TOKEN_ENDPOINT = "https://open.tiktokapis.com/v2/oauth/token/";
@@ -24,16 +23,19 @@ interface TikTokUserInfoResponse {
         user?: {
             display_name?: string;
             avatar_url?: string;
+            username?: string;
         };
     };
     error?: {
         code?: string;
+        message?: string;
     };
 }
 
 export interface TikTokBasicProfile {
     displayName: string;
     avatarUrl: string;
+    username: string;
 }
 
 export class TikTokAuthError extends Error {
@@ -123,55 +125,73 @@ async function persistTokens(
     return scope;
 }
 
-async function fetchTikTokBasicProfile(openId: string, accessToken: string): Promise<TikTokBasicProfile | null> {
+async function fetchTikTokUserProfile(openId: string, accessToken: string): Promise<TikTokBasicProfile> {
+    const url = new URL(USER_INFO_ENDPOINT);
+    url.searchParams.set("fields", "display_name,avatar_url,username");
+
+    let response: Response;
     try {
-        const url = new URL(USER_INFO_ENDPOINT);
-        url.searchParams.set("fields", "display_name,avatar_url");
-        const response = await fetch(url, {
+        response = await fetch(url, {
             headers: { Authorization: `Bearer ${accessToken}` },
             signal: AbortSignal.timeout(10_000),
         });
-        const result = await response.json().catch(() => null) as TikTokUserInfoResponse | null;
-        const user = result?.data?.user;
-        console.log("Fetched TikTok user info:", user);
-        if (!response.ok || !user || result?.error?.code && result.error.code !== "ok") {
-            await writeErrorLog("fetchTikTokBasicProfile", result?.error?.code || String(response.status), "TikTok basic profile lookup failed", {
-                stage: "profile_lookup",
-            });
-            return null;
-        }
-
-        const profile = {
-            displayName: user.display_name || "",
-            avatarUrl: user.avatar_url || "",
-        };
-        if (!profile.displayName && !profile.avatarUrl) return null;
-
-        await TikTokUserInfoDB.findOneAndUpdate({ openId }, {
-            $set: profile,
-            $setOnInsert: { openId },
-        }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
-        return profile;
     } catch {
-        await writeErrorLog("fetchTikTokBasicProfile", "profile_lookup_failed", "TikTok basic profile lookup request failed", {
-            stage: "profile_lookup",
-        });
-        return null;
+        throw new TikTokAuthError("TikTok user info is temporarily unavailable", 502, "user_info_unavailable");
     }
+
+    const result = await response.json().catch(() => null) as TikTokUserInfoResponse | null;
+    const user = result?.data?.user;
+    if (!response.ok || result?.error?.code && result.error.code !== "ok") {
+        const providerCode = typeof result?.error?.code === "string" && /^[a-z0-9_-]{1,80}$/i.test(result.error.code)
+            ? result.error.code
+            : `http_${response.status}`;
+        throw new TikTokAuthError("TikTok user info request failed", response.ok ? 403 : 502, providerCode);
+    }
+    if (!user) throw new TikTokAuthError("TikTok did not return user info", 502, "user_info_missing");
+
+    const username = user.username?.trim();
+    if (!username) {
+        throw new TikTokAuthError("TikTok did not return a username; confirm user.info.profile was granted", 403, "username_unavailable");
+    }
+
+    const profile = {
+        displayName: user.display_name || "",
+        avatarUrl: user.avatar_url || "",
+        username,
+    };
+    await TikTokUserInfoDB.findOneAndUpdate({ openId }, {
+        $set: profile,
+        $setOnInsert: { openId },
+    }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
+    return profile;
 }
 
-export async function exchangeAuthorizationCode(code: string, requestBasicProfile = false) {
+export async function exchangeAuthorizationCode(code: string) {
     const data = await requestToken(new URLSearchParams({ code, grant_type: "authorization_code" }));
     if (!data.open_id) throw new TikTokAuthError("TikTok did not return a user identity", 502);
-    const grantedScopes = new Set((data.scope || "").split(/[\s,]+/).filter(Boolean));
-    if (requestBasicProfile && !grantedScopes.has("user.info.basic")) {
-        throw new TikTokAuthError("TikTok did not grant user.info.basic", 403, "profile_scope_missing");
-    }
     const scope = await persistTokens(data.open_id, data);
-    const profile = requestBasicProfile
-        ? await fetchTikTokBasicProfile(data.open_id, data.access_token as string)
-        : null;
-    return { openId: data.open_id, scope, profile };
+    return { openId: data.open_id, scope };
+}
+
+export async function authorizeUserInfoProfile(openId: string, code: string) {
+    const existingUser = await TikTokUserDB.findOne({ openId }).select("+encryptedRefreshToken").exec();
+    if (!existingUser) throw new TikTokAuthError("TikTok account was not found", 401);
+
+    const data = await requestToken(new URLSearchParams({ code, grant_type: "authorization_code" }));
+    if (!data.open_id) throw new TikTokAuthError("TikTok did not return a user identity", 502);
+    if (data.open_id !== openId) {
+        throw new TikTokAuthError("TikTok authorization belongs to a different account", 403, "account_mismatch");
+    }
+    if (!data.access_token) throw new TikTokAuthError("TikTok returned an incomplete token response", 502);
+
+    const grantedScopes = new Set((data.scope || "").split(/[\s,]+/).filter(Boolean));
+    if (!grantedScopes.has("user.info.profile")) {
+        throw new TikTokAuthError("TikTok did not grant user.info.profile", 403, "profile_scope_missing");
+    }
+
+    await persistTokens(openId, data, decryptToken(existingUser.encryptedRefreshToken));
+    const profile = await fetchTikTokUserProfile(openId, data.access_token);
+    return { profile, scope: data.scope || "" };
 }
 
 export async function refreshUserTokens(openId: string) {
