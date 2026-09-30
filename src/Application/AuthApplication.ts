@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { writeErrorLog } from "../Helpers/errorLogging";
 import TikTokUserDB from "../Models/TikTokUser";
-import { authorizeUserInfoProfile, exchangeAuthorizationCode, refreshUserTokens, TikTokAuthError } from "../Service/TikTokAuthService";
+import { exchangeAuthorizationCode, refreshUserTokens, TikTokAuthError } from "../Service/TikTokAuthService";
 
 function createSessionToken(openId: string) {
     return jwt.sign({ sub: openId }, process.env.MINI_API_SESSION_SECRET as string, { expiresIn: "24h" });
@@ -21,21 +21,16 @@ function getSessionOpenId(request: Request) {
 }
 
 async function sendAuthError(request: Request, response: Response, error: unknown, functionName: string) {
-    const stage = functionName === "silentLogin"
-        ? "token_exchange_or_persist"
-        : functionName === "authorizeProfile"
-            ? "profile_authorization"
-            : "token_refresh";
     if (error instanceof TikTokAuthError) {
         await writeErrorLog(functionName, error.diagnosticCode || String(error.statusCode), error.message, {
-            stage,
+            stage: functionName === "silentLogin" ? "token_exchange_or_persist" : "token_refresh",
             origin: request.get("origin") || "unknown",
         });
         response.status(error.statusCode).json({ message: error.message });
         return;
     }
     await writeErrorLog(functionName, "500", error instanceof Error ? error.message : "Unexpected authentication server error", {
-        stage,
+        stage: functionName === "silentLogin" ? "token_exchange_or_persist" : "token_refresh",
         errorName: error instanceof Error ? error.name.slice(0, 80) : "UnknownError",
         origin: request.get("origin") || "unknown",
     });
@@ -55,49 +50,16 @@ export async function silentLogin(request: Request, response: Response) {
     }
 
     try {
-        const { openId, scope } = await exchangeAuthorizationCode(code);
+        const profileAuthorization = request.body?.profileAuthorization === true;
+        const { openId, scope, profile } = await exchangeAuthorizationCode(code, profileAuthorization);
         response.json({
             authenticated: true,
             sessionToken: createSessionToken(openId),
             grantedScopes: scope,
+            ...(profileAuthorization ? { profile } : {}),
         });
     } catch (error) {
         await sendAuthError(request, response, error, "silentLogin");
-    }
-}
-
-export async function authorizeProfile(request: Request, response: Response) {
-    const openId = getSessionOpenId(request);
-    if (!openId) {
-        await writeErrorLog("authorizeProfile", "401", "API session token is missing or invalid", {
-            stage: "validate_api_session",
-            origin: request.get("origin") || "unknown",
-        });
-        response.status(401).json({ message: "Your session has expired. Please sign in again." });
-        return;
-    }
-
-    const code = request.body?.code;
-    if (typeof code !== "string" || code.length === 0 || code.length > 2048) {
-        await writeErrorLog("authorizeProfile", "400", "Profile authorization code validation failed", {
-            stage: "validate_authorization_code",
-            codeProvided: typeof code === "string" && code.length > 0,
-            origin: request.get("origin") || "unknown",
-        });
-        response.status(400).json({ message: "A valid profile authorization code is required." });
-        return;
-    }
-
-    try {
-        const { username, scope } = await authorizeUserInfoProfile(openId, code);
-        await writeErrorLog("TikTok Minis explicit authorization", "username_retrieved", "TikTok username retrieved", {
-            stage: "username_lookup",
-            grantedScopes: scope,
-            usernameReturned: true,
-        });
-        response.json({ username, grantedScopes: scope });
-    } catch (error) {
-        await sendAuthError(request, response, error, "authorizeProfile");
     }
 }
 
