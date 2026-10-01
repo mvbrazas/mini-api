@@ -10,6 +10,6 @@ const UserSchema = new Schema<User>({
     openId: { type: String, required: true, unique: true },
     displayName: { type: String, default: null },
     avatarUrl: { type: String, default: null },
-}, { timestamps: true, collection: "User" });
+}, { timestamps: true, collection: "Users" });
 
-export default model<User>("User", UserSchema);
+export default model<User>("Users", UserSchema);

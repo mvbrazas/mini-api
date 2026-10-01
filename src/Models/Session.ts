@@ -20,6 +20,6 @@ const SessionSchema = new Schema<Session>({
     scope: { type: String, default: "" },
     tokenType: { type: String, default: "Bearer" },
     reauthenticationRequired: { type: Boolean, default: false },
-}, { timestamps: true, collection: "Session" });
+}, { timestamps: true, collection: "Sessions" });
 
-export default model<Session>("Session", SessionSchema);
+export default model<Session>("Sessions", SessionSchema);
