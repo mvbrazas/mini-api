@@ -1,6 +1,6 @@
 import { model, Schema } from "mongoose";
 
-export interface TikTokUser {
+export interface Session {
     openId: string;
     encryptedAccessToken: string;
     encryptedRefreshToken: string;
@@ -11,7 +11,7 @@ export interface TikTokUser {
     reauthenticationRequired: boolean;
 }
 
-const TikTokUserSchema = new Schema<TikTokUser>({
+const SessionSchema = new Schema<Session>({
     openId: { type: String, required: true, unique: true },
     encryptedAccessToken: { type: String, required: true, select: false },
     encryptedRefreshToken: { type: String, required: true, select: false },
@@ -20,6 +20,6 @@ const TikTokUserSchema = new Schema<TikTokUser>({
     scope: { type: String, default: "" },
     tokenType: { type: String, default: "Bearer" },
     reauthenticationRequired: { type: Boolean, default: false },
-}, { timestamps: true });
+}, { timestamps: true, collection: "Session" });
 
-export default model<TikTokUser>("TikTokUser", TikTokUserSchema);
+export default model<Session>("Session", SessionSchema);

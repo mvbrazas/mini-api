@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { writeErrorLog } from "../Helpers/errorLogging";
-import TikTokUserDB from "../Models/TikTokUser";
+import SessionDB from "../Models/Session";
 import { exchangeAuthorizationCode, refreshUserTokens, TikTokAuthError } from "../Service/TikTokAuthService";
 
 function createSessionToken(openId: string) {
@@ -75,7 +75,7 @@ export async function refreshSession(request: Request, response: Response) {
     }
 
     try {
-        const user = await TikTokUserDB.findOne({ openId }).select("_id").exec();
+        const user = await SessionDB.findOne({ openId }).select("_id").exec();
         if (!user) {
             await writeErrorLog("refreshSession", "401", "TikTok account record was not found", {
                 stage: "find_tiktok_account",

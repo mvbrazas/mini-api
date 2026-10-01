@@ -1,15 +1,15 @@
 import { model, Schema } from "mongoose";
 
-export interface TikTokUserInfo {
+export interface User {
     openId: string;
     displayName: string | null;
     avatarUrl: string | null;
 }
 
-const TikTokUserInfoSchema = new Schema<TikTokUserInfo>({
+const UserSchema = new Schema<User>({
     openId: { type: String, required: true, unique: true },
     displayName: { type: String, default: null },
     avatarUrl: { type: String, default: null },
-}, { timestamps: true, collection: "tiktokuserInfos" });
+}, { timestamps: true, collection: "User" });
 
-export default model<TikTokUserInfo>("TikTokUserInfo", TikTokUserInfoSchema);
+export default model<User>("User", UserSchema);

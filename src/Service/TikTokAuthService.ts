@@ -1,5 +1,5 @@
-import TikTokUserDB from "../Models/TikTokUser";
-import TikTokUserInfoDB from "../Models/TikTokUserInfo";
+import SessionDB from "../Models/Session";
+import UserDB from "../Models/User";
 import { writeErrorLog } from "../Helpers/errorLogging";
 import { decryptToken, encryptToken } from "../Helpers/tokenEncryption";
 
@@ -94,7 +94,7 @@ async function persistTokens(
         throw new TikTokAuthError("TikTok returned an incomplete token response", 502);
     }
 
-    const existing = await TikTokUserDB.findOne({ openId }).select("+encryptedRefreshToken").exec();
+    const existing = await SessionDB.findOne({ openId }).select("+encryptedRefreshToken").exec();
     const refreshExpiry = data.refresh_expires_in
         ? tokenExpiry(data.refresh_expires_in, "refresh token expiry")
         : existing?.refreshTokenExpiresAt;
@@ -109,7 +109,7 @@ async function persistTokens(
     const scope = preserveExistingScopes
         ? Array.from(returnedScopes).join(",") || existing?.scope || ""
         : data.scope || "";
-    await TikTokUserDB.findOneAndUpdate({ openId }, {
+    await SessionDB.findOneAndUpdate({ openId }, {
         $set: {
             encryptedAccessToken: encryptToken(data.access_token),
             encryptedRefreshToken: encryptToken(data.refresh_token || previousRefreshToken as string),
@@ -146,7 +146,7 @@ async function fetchTikTokBasicProfile(openId: string, accessToken: string): Pro
         };
         if (!profile.displayName && !profile.avatarUrl) return null;
 
-        await TikTokUserInfoDB.findOneAndUpdate({ openId }, {
+        await UserDB.findOneAndUpdate({ openId }, {
             $set: profile,
             $setOnInsert: { openId },
         }, { upsert: true, new: true, setDefaultsOnInsert: true }).exec();
@@ -174,7 +174,7 @@ export async function exchangeAuthorizationCode(code: string, requestBasicProfil
 }
 
 export async function refreshUserTokens(openId: string) {
-    const user = await TikTokUserDB.findOne({ openId }).select("+encryptedRefreshToken").exec();
+    const user = await SessionDB.findOne({ openId }).select("+encryptedRefreshToken").exec();
     if (!user) throw new TikTokAuthError("TikTok account was not found", 401);
     if (user.reauthenticationRequired || user.refreshTokenExpiresAt <= new Date()) {
         throw new TikTokAuthError("TikTok sign-in must be completed again", 401);
@@ -190,7 +190,7 @@ export async function refreshUserTokens(openId: string) {
         await persistTokens(openId, data, refreshToken);
     } catch (error) {
         if (error instanceof TikTokAuthError && error.statusCode === 401) {
-            await TikTokUserDB.updateOne({ openId }, { $set: { reauthenticationRequired: true } }).exec();
+            await SessionDB.updateOne({ openId }, { $set: { reauthenticationRequired: true } }).exec();
         }
         throw error;
     }
